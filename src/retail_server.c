@@ -1,15 +1,15 @@
 #include "common.h"
+#include "server_net.h"
+#include "server_payment.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
-#include <stdarg.h>
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 
 #define SERVER_PORT 9090
 #define SERVER_BACKLOG 32
@@ -101,82 +101,6 @@ static unsigned long hash_password(const char *password) {
     }
 
     return hash;
-}
-
-static int send_all(int fd, const char *buffer, size_t length) {
-    size_t sent = 0;
-
-    while (sent < length) {
-        ssize_t written = send(fd, buffer + sent, length - sent, 0);
-        if (written < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return 0;
-        }
-        if (written == 0) {
-            return 0;
-        }
-        sent += (size_t)written;
-    }
-
-    return 1;
-}
-
-static int send_linef(int fd, const char *fmt, ...) {
-    char buffer[MAX_LINE];
-    size_t len;
-    va_list args;
-
-    va_start(args, fmt);
-    vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
-
-    len = strlen(buffer);
-    if (len == 0 || buffer[len - 1] != '\n') {
-        if (len + 1 >= sizeof(buffer)) {
-            return 0;
-        }
-        buffer[len] = '\n';
-        buffer[len + 1] = '\0';
-        len++;
-    }
-
-    return send_all(fd, buffer, len);
-}
-
-static int recv_line(int fd, char *buffer, size_t size) {
-    size_t idx = 0;
-
-    while (idx < size - 1) {
-        char ch;
-        ssize_t result = recv(fd, &ch, 1, 0);
-
-        if (result == 0) {
-            if (idx == 0) {
-                return 0;
-            }
-            break;
-        }
-        if (result < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return -1;
-        }
-
-        if (ch == '\r') {
-            continue;
-        }
-        if (ch == '\n') {
-            break;
-        }
-
-        buffer[idx++] = ch;
-    }
-
-    buffer[idx] = '\0';
-    return 1;
 }
 
 static int is_safe_token(const char *value) {
@@ -518,83 +442,6 @@ static int is_valid_status_transition(const char *current_status, const char *ne
         return strcmp(next_status, "DELIVERED") == 0;
     }
     return 0;
-}
-
-static int run_payment_process(const char *method, float amount, char *payment_status, size_t payment_status_size) {
-    int request_pipe[2];
-    int response_pipe[2];
-    pid_t pid;
-
-    if (pipe(request_pipe) < 0 || pipe(response_pipe) < 0) {
-        return 0;
-    }
-
-    pid = fork();
-    if (pid < 0) {
-        close(request_pipe[0]);
-        close(request_pipe[1]);
-        close(response_pipe[0]);
-        close(response_pipe[1]);
-        return 0;
-    }
-
-    if (pid == 0) {
-        char req[128] = {0};
-        char method_buf[32] = {0};
-        float amount_value = 0.0f;
-        const char *result = "FAILED";
-        ssize_t read_bytes;
-
-        close(request_pipe[1]);
-        close(response_pipe[0]);
-
-        read_bytes = read(request_pipe[0], req, sizeof(req) - 1);
-        if (read_bytes > 0) {
-            req[read_bytes] = '\0';
-            if (sscanf(req, "%31s %f", method_buf, &amount_value) == 2 && amount_value >= 0.0f) {
-                if (strcmp(method_buf, "COD") == 0) {
-                    result = "PENDING";
-                } else if (strcmp(method_buf, "UPI") == 0 || strcmp(method_buf, "CARD") == 0) {
-                    result = "PAID";
-                }
-            }
-        }
-
-        write(response_pipe[1], result, strlen(result));
-        close(request_pipe[0]);
-        close(response_pipe[1]);
-        _exit(0);
-    }
-
-    close(request_pipe[0]);
-    close(response_pipe[1]);
-
-    {
-        char request[128];
-        int status_code;
-        ssize_t read_bytes;
-
-        snprintf(request, sizeof(request), "%s %.2f", method, amount);
-        write(request_pipe[1], request, strlen(request));
-        close(request_pipe[1]);
-
-        read_bytes = read(response_pipe[0], payment_status, payment_status_size - 1);
-        close(response_pipe[0]);
-
-        if (read_bytes <= 0) {
-            waitpid(pid, &status_code, 0);
-            return 0;
-        }
-
-        payment_status[read_bytes] = '\0';
-        waitpid(pid, &status_code, 0);
-
-        if (!WIFEXITED(status_code)) {
-            return 0;
-        }
-
-        return strcmp(payment_status, "FAILED") != 0;
-    }
 }
 
 static int ensure_default_admin_locked(void) {

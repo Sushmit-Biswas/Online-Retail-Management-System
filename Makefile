@@ -2,8 +2,8 @@ CC = gcc
 CFLAGS = -Wall -Wextra -Iinclude -g
 SERVER_TARGET = retail_server
 CLIENT_TARGET = retail_client
-SERVER_SRC = src/retail_server.c
-CLIENT_SRC = src/retail_client.c src/fort.c
+SERVER_SRC = src/retail_server.c src/server_net.c src/server_payment.c
+CLIENT_SRC = src/retail_client.c src/client_tables.c src/fort.c
 
 all: $(SERVER_TARGET) $(CLIENT_TARGET)
 
