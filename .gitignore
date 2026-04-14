@@ -1,0 +1,5 @@
+*.o
+retail_server
+retail_client
+retail_store
+.vscode/
