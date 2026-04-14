@@ -9,7 +9,6 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 
 #define SERVER_PORT 9090

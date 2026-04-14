@@ -227,6 +227,14 @@ static int expect_single_response(int fd, char *line_out, size_t line_out_size) 
     return 1;
 }
 
+static void print_ok_banner_line(const char *line) {
+    if (strncmp(line, "OK ", 3) == 0) {
+        printf("\n%s%s%s%s\n", BOLD, GREEN, line + 3, RESET);
+    } else {
+        printf("\n%s%s%s%s\n", BOLD, GREEN, line, RESET);
+    }
+}
+
 static void show_admin_menu(void) {
     print_header_local("Retail Client (Admin)");
     printf("\n%s%s[1]%s Add Product\n", BOLD, MAGENTA, RESET);
@@ -250,8 +258,51 @@ static void show_customer_menu(void) {
     printf("%s%s[0]%s Logout\n", BOLD, RED, RESET);
 }
 
+typedef struct {
+    int id;
+    int stock;
+    float price;
+    char name[100];
+    char category[50];
+} ClientProduct;
+
+static int compare_category_tokens(const void *a, const void *b) {
+    const char *left = (const char *)a;
+    const char *right = (const char *)b;
+    return strcasecmp(left, right);
+}
+
+static void token_to_label(const char *token, char *label, size_t label_size) {
+    size_t i;
+    if (label_size == 0) {
+        return;
+    }
+
+    for (i = 0; token[i] != '\0' && i + 1 < label_size; i++) {
+        label[i] = (token[i] == '_') ? ' ' : token[i];
+    }
+    label[i] = '\0';
+}
+
+static void truncate_label(char *label, size_t max_len) {
+    size_t len = strlen(label);
+    if (max_len < 4 || len <= max_len) {
+        return;
+    }
+
+    label[max_len - 3] = '.';
+    label[max_len - 2] = '.';
+    label[max_len - 1] = '.';
+    label[max_len] = '\0';
+}
+
 static void handle_list_products(int fd) {
     char line[MAX_LINE];
+    ClientProduct products[2048];
+    char categories[64][50];
+    int count = 0;
+    int category_count = 0;
+    int i;
 
     if (!send_linef(fd, "LIST_PRODUCTS")) {
         return;
@@ -266,16 +317,7 @@ static void handle_list_products(int fd) {
         return;
     }
 
-    if (strncmp(line, "OK ", 3) == 0) {
-        printf("\n%s%s%s%s\n", BOLD, GREEN, line + 3, RESET);
-    } else {
-        printf("\n%s%s%s%s\n", BOLD, GREEN, line, RESET);
-    }
-    
-    ft_table_t *table = ft_create_table();
-    ft_set_border_style(table, FT_SOLID_STYLE);
-    ft_set_cell_prop(table, 0, FT_ANY_COLUMN, FT_CPROP_ROW_TYPE, FT_ROW_HEADER);
-    ft_write_ln(table, "ID", "NAME", "CATEGORY", "PRICE", "STOCK");
+    print_ok_banner_line(line);
 
     while (1) {
         int rc = recv_line(fd, line, sizeof(line));
@@ -287,27 +329,173 @@ static void handle_list_products(int fd) {
         }
 
         if (strncmp(line, "DATA ", 5) == 0) {
-            int id;
-            int stock;
-            float price;
-            char name[100];
-            char category[50];
-
-            if (sscanf(line + 5, "%d,%99[^,],%49[^,],%f,%d", &id, name, category, &price, &stock) == 5) {
-                char price_str[32];
-                char id_str[32];
-                char stock_str[32];
-                snprintf(price_str, sizeof(price_str), "%.2f", price);
-                snprintf(id_str, sizeof(id_str), "%d", id);
-                snprintf(stock_str, sizeof(stock_str), "%d", stock);
-                ft_write_ln(table, id_str, name, category, price_str, stock_str);
+            if (count < 2048) {
+                if (sscanf(line + 5, "%d,%99[^,],%49[^,],%f,%d",
+                           &products[count].id,
+                           products[count].name,
+                           products[count].category,
+                           &products[count].price,
+                           &products[count].stock) == 5) {
+                    int exists = 0;
+                    int c;
+                    for (c = 0; c < category_count; c++) {
+                        if (strcasecmp(categories[c], products[count].category) == 0) {
+                            exists = 1;
+                            break;
+                        }
+                    }
+                    if (!exists && category_count < 64) {
+                        snprintf(categories[category_count], sizeof(categories[category_count]), "%s", products[count].category);
+                        category_count++;
+                    }
+                    count++;
+                }
             }
         }
     }
-    
-    printf("%s%s%s\n", BOLD, CYAN, ft_to_string(table));
-    printf("%s", RESET);
-    ft_destroy_table(table);
+
+    if (count == 0) {
+        printf("%s%sNo products available right now.%s\n", BOLD, RED, RESET);
+        return;
+    }
+
+    if (category_count > 1) {
+        qsort(categories, (size_t)category_count, sizeof(categories[0]), compare_category_tokens);
+    }
+
+    if (category_count > 0) {
+        printf("\n%s%sAvailable categories:%s ", BOLD, CYAN, RESET);
+        for (i = 0; i < category_count; i++) {
+            char category_label[64];
+            token_to_label(categories[i], category_label, sizeof(category_label));
+            printf("%s%s%s", YELLOW, category_label, RESET);
+            if (i + 1 < category_count) {
+                printf(", ");
+            }
+        }
+        printf("\n%s%sType 'all' to show everything.%s\n", BOLD, BLUE, RESET);
+    }
+
+    char filter_cat[50];
+    int is_all = 0;
+    while (1) {
+        int valid = 0;
+
+        read_line_prompt("Select category: ", filter_cat, sizeof(filter_cat));
+        if (strlen(filter_cat) == 0) {
+            printf("%s%sPlease enter a category name or 'all'.%s\n", BOLD, RED, RESET);
+            continue;
+        }
+
+        normalize_token(filter_cat);
+        if (strcasecmp(filter_cat, "all") == 0) {
+            is_all = 1;
+            break;
+        }
+
+        for (i = 0; i < category_count; i++) {
+            if (strcasecmp(filter_cat, categories[i]) == 0) {
+                valid = 1;
+                break;
+            }
+        }
+
+        if (valid) {
+            break;
+        }
+
+        printf("%s%sUnknown category. Choose from the list above or type 'all'.%s\n", BOLD, RED, RESET);
+    }
+
+    ClientProduct filtered[2048];
+    int f_count = 0;
+    for (i = 0; i < count; i++) {
+        if (is_all || strcasecmp(products[i].category, filter_cat) == 0) {
+            filtered[f_count++] = products[i];
+        }
+    }
+
+    if (f_count == 0) {
+        printf("\n%s%sNo products found in category: %s%s\n", BOLD, RED, filter_cat, RESET);
+        return;
+    }
+
+    int page_size = 10;
+    int total_pages = (f_count + page_size - 1) / page_size;
+    int cur_page = 0;
+
+    while (1) {
+        int start_idx;
+        int end_idx;
+        ft_table_t *table = ft_create_table();
+        ft_set_border_style(table, FT_SOLID_STYLE);
+        ft_set_cell_prop(table, 0, FT_ANY_COLUMN, FT_CPROP_ROW_TYPE, FT_ROW_HEADER);
+        ft_set_cell_prop(table, 0, FT_ANY_COLUMN, FT_CPROP_TEXT_ALIGN, FT_ALIGNED_CENTER);
+        ft_set_cell_prop(table, FT_ANY_ROW, 0, FT_CPROP_TEXT_ALIGN, FT_ALIGNED_RIGHT);
+        ft_set_cell_prop(table, FT_ANY_ROW, 3, FT_CPROP_TEXT_ALIGN, FT_ALIGNED_RIGHT);
+        ft_set_cell_prop(table, FT_ANY_ROW, 4, FT_CPROP_TEXT_ALIGN, FT_ALIGNED_RIGHT);
+        ft_set_cell_prop(table, FT_ANY_ROW, 0, FT_CPROP_MIN_WIDTH, 4);
+        ft_set_cell_prop(table, FT_ANY_ROW, 1, FT_CPROP_MIN_WIDTH, 28);
+        ft_set_cell_prop(table, FT_ANY_ROW, 2, FT_CPROP_MIN_WIDTH, 14);
+        ft_set_cell_prop(table, FT_ANY_ROW, 3, FT_CPROP_MIN_WIDTH, 11);
+        ft_set_cell_prop(table, FT_ANY_ROW, 4, FT_CPROP_MIN_WIDTH, 7);
+        
+        ft_set_cell_prop(table, FT_ANY_ROW, 0, FT_CPROP_CONT_FG_COLOR, FT_COLOR_CYAN);
+        ft_set_cell_prop(table, FT_ANY_ROW, 1, FT_CPROP_CONT_FG_COLOR, FT_COLOR_GREEN);
+        ft_set_cell_prop(table, FT_ANY_ROW, 2, FT_CPROP_CONT_FG_COLOR, FT_COLOR_YELLOW);
+        ft_set_cell_prop(table, FT_ANY_ROW, 3, FT_CPROP_CONT_FG_COLOR, FT_COLOR_MAGENTA);
+        ft_set_cell_prop(table, FT_ANY_ROW, 4, FT_CPROP_CONT_FG_COLOR, FT_COLOR_LIGHT_RED);
+
+        ft_u8write_ln(table, "ID", "NAME", "CATEGORY", "PRICE", "STOCK");
+
+        start_idx = cur_page * page_size;
+        end_idx = start_idx + page_size;
+        if (end_idx > f_count) {
+            end_idx = f_count;
+        }
+
+        for (i = start_idx; i < end_idx; i++) {
+            char price_str[32], id_str[32], stock_str[32];
+            char name_label[64];
+            char category_label[32];
+
+            token_to_label(filtered[i].name, name_label, sizeof(name_label));
+            token_to_label(filtered[i].category, category_label, sizeof(category_label));
+            truncate_label(name_label, 28);
+            truncate_label(category_label, 14);
+
+            snprintf(price_str, sizeof(price_str), "₹%.2f", filtered[i].price);
+            snprintf(id_str, sizeof(id_str), "%d", filtered[i].id);
+            snprintf(stock_str, sizeof(stock_str), "%d", filtered[i].stock);
+            ft_u8write_ln(table, id_str, name_label, category_label, price_str, stock_str);
+        }
+
+        printf("\n%s%s--- Page %d of %d (Products %d-%d of %d) ---%s\n", BOLD, MAGENTA, cur_page + 1, total_pages, start_idx + 1, end_idx, f_count, RESET);
+        printf("%s", (const char *)ft_to_u8string(table));
+        printf("%s", RESET);
+        ft_destroy_table(table);
+
+        char cmd[16];
+        read_line_prompt("Enter 'n' (next 10), 'p' (prev 10), 'q' (exit to menu): ", cmd, sizeof(cmd));
+        
+        if (cmd[0] == 'q' || cmd[0] == 'Q') {
+            break;
+        } else if (cmd[0] == 'n' || cmd[0] == 'N') {
+            if (cur_page < total_pages - 1) {
+                cur_page++;
+            } else {
+                printf("%s%sAlready on the last page!%s\n", BOLD, RED, RESET);
+            }
+        } else if (cmd[0] == 'p' || cmd[0] == 'P') {
+            if (cur_page > 0) {
+                cur_page--;
+            } else {
+                printf("%s%sAlready on the first page!%s\n", BOLD, RED, RESET);
+            }
+        } else {
+            printf("%s%sInvalid choice. Use n / p / q.%s\n", BOLD, RED, RESET);
+        }
+    }
 }
 
 static void handle_my_orders(int fd) {
@@ -326,11 +514,7 @@ static void handle_my_orders(int fd) {
         return;
     }
 
-    if (strncmp(line, "OK ", 3) == 0) {
-        printf("\n%s%s%s%s\n", BOLD, GREEN, line + 3, RESET);
-    } else {
-        printf("\n%s%s%s%s\n", BOLD, GREEN, line, RESET);
-    }
+    print_ok_banner_line(line);
     
     ft_table_t *table = ft_create_table();
     ft_set_border_style(table, FT_SOLID_STYLE);
@@ -388,11 +572,7 @@ static void handle_all_orders(int fd) {
         return;
     }
 
-    if (strncmp(line, "OK ", 3) == 0) {
-        printf("\n%s%s%s%s\n", BOLD, GREEN, line + 3, RESET);
-    } else {
-        printf("\n%s%s%s%s\n", BOLD, GREEN, line, RESET);
-    }
+    print_ok_banner_line(line);
     
     ft_table_t *table = ft_create_table();
     ft_set_border_style(table, FT_SOLID_STYLE);
