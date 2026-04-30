@@ -10,6 +10,8 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define SERVER_PORT 9090
 #define SERVER_BACKLOG 32
@@ -192,6 +194,35 @@ static int parse_order_line(const char *line, Order *order) {
                order->timestamp) == 11;
 }
 
+
+static int acquire_file_lock(const char *filename, int is_write, int *out_fd) {
+    struct flock fl;
+    int fd;
+    
+    fd = open(filename, is_write ? O_RDWR | O_CREAT : O_RDONLY, 0666);
+    if (fd < 0) return -1;
+    
+    fl.l_type = is_write ? F_WRLCK : F_RDLCK;
+    fl.l_whence = SEEK_SET;
+    fl.l_start = 0;
+    fl.l_len = 0;
+    
+    fcntl(fd, F_SETLKW, &fl);
+    *out_fd = fd;
+    return 0;
+}
+
+static void release_file_lock(int fd) {
+    struct flock fl;
+    if (fd < 0) return;
+    fl.l_type = F_UNLCK;
+    fl.l_whence = SEEK_SET;
+    fl.l_start = 0;
+    fl.l_len = 0;
+    fcntl(fd, F_SETLK, &fl);
+    close(fd);
+}
+
 static void ensure_data_files(void) {
     FILE *file;
 
@@ -223,8 +254,11 @@ static void load_users_locked(void) {
     char line[256];
 
     g_user_count = 0;
+    int lock_fd = -1;
+    if (acquire_file_lock(USERS_FILE, 0, &lock_fd) < 0) return;
     file = fopen(USERS_FILE, "r");
     if (file == NULL) {
+        release_file_lock(lock_fd);
         return;
     }
 
@@ -236,6 +270,7 @@ static void load_users_locked(void) {
     }
 
     fclose(file);
+    release_file_lock(lock_fd);
 }
 
 static void load_products_locked(void) {
@@ -243,8 +278,11 @@ static void load_products_locked(void) {
     char line[512];
 
     g_product_count = 0;
+    int lock_fd = -1;
+    if (acquire_file_lock(PRODUCTS_FILE, 0, &lock_fd) < 0) return;
     file = fopen(PRODUCTS_FILE, "r");
     if (file == NULL) {
+        release_file_lock(lock_fd);
         return;
     }
 
@@ -256,6 +294,7 @@ static void load_products_locked(void) {
     }
 
     fclose(file);
+    release_file_lock(lock_fd);
 }
 
 static void load_orders_locked(void) {
@@ -263,8 +302,11 @@ static void load_orders_locked(void) {
     char line[700];
 
     g_order_count = 0;
+    int lock_fd = -1;
+    if (acquire_file_lock(ORDERS_FILE, 0, &lock_fd) < 0) return;
     file = fopen(ORDERS_FILE, "r");
     if (file == NULL) {
+        release_file_lock(lock_fd);
         return;
     }
 
@@ -276,14 +318,18 @@ static void load_orders_locked(void) {
     }
 
     fclose(file);
+    release_file_lock(lock_fd);
 }
 
 static int save_users_locked(void) {
     FILE *file;
     int i;
 
+    int lock_fd = -1;
+    if (acquire_file_lock(USERS_FILE, 1, &lock_fd) < 0) return 0;
     file = fopen(USERS_FILE, "w");
     if (file == NULL) {
+        release_file_lock(lock_fd);
         return 0;
     }
 
@@ -292,6 +338,7 @@ static int save_users_locked(void) {
     }
 
     fclose(file);
+    release_file_lock(lock_fd);
     return 1;
 }
 
@@ -299,8 +346,11 @@ static int save_products_locked(void) {
     FILE *file;
     int i;
 
+    int lock_fd = -1;
+    if (acquire_file_lock(PRODUCTS_FILE, 1, &lock_fd) < 0) return 0;
     file = fopen(PRODUCTS_FILE, "w");
     if (file == NULL) {
+        release_file_lock(lock_fd);
         return 0;
     }
 
@@ -316,6 +366,7 @@ static int save_products_locked(void) {
     }
 
     fclose(file);
+    release_file_lock(lock_fd);
     return 1;
 }
 
@@ -323,8 +374,11 @@ static int save_orders_locked(void) {
     FILE *file;
     int i;
 
+    int lock_fd = -1;
+    if (acquire_file_lock(ORDERS_FILE, 1, &lock_fd) < 0) return 0;
     file = fopen(ORDERS_FILE, "w");
     if (file == NULL) {
+        release_file_lock(lock_fd);
         return 0;
     }
 
@@ -346,6 +400,7 @@ static int save_orders_locked(void) {
     }
 
     fclose(file);
+    release_file_lock(lock_fd);
     return 1;
 }
 
@@ -355,11 +410,14 @@ static void log_action_server(const char *username, const char *action) {
 
     pthread_mutex_lock(&g_log_mutex);
 
+    int lock_fd = -1;
+    if (acquire_file_lock(LOG_FILE, 1, &lock_fd) < 0) return;
     file = fopen(LOG_FILE, "a");
     if (file != NULL) {
         now_timestamp(ts, sizeof(ts));
         fprintf(file, "[%s] User: %s , Action: %s\n", ts, username, action);
         fclose(file);
+        release_file_lock(lock_fd);
     }
 
     pthread_mutex_unlock(&g_log_mutex);
@@ -917,7 +975,6 @@ static void handle_place_order(ClientSession *session, const char *product_id_te
     unit_price = g_products[product_idx].price;
     total_amount = unit_price * (float)quantity;
     snprintf(product_name, sizeof(product_name), "%s", g_products[product_idx].name);
-    order_id = next_order_id_locked();
 
     if (!save_products_locked()) {
         g_products[product_idx].stock += quantity;
@@ -953,6 +1010,7 @@ static void handle_place_order(ClientSession *session, const char *product_id_te
         return;
     }
 
+    order_id = next_order_id_locked();
     g_orders[g_order_count].id = order_id;
     snprintf(g_orders[g_order_count].username, sizeof(g_orders[g_order_count].username), "%s", session->username);
     g_orders[g_order_count].product_id = product_id;

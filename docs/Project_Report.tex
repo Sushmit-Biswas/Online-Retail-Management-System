@@ -1,0 +1,70 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\geometry{a4paper, margin=1in}
+
+\title{\textbf{Operating Systems Lab Mini-Project Report}\\
+\large Online Retail Store Management System\\
+\small (Implemented in C using Linux Systems Programming)}
+\author{Sushmit Biswas \\ EGC 301P}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Problem Statement}
+The objective of this project is to develop a fully functional \textbf{Online Retail Store Management System} using Linux systems programming. To fulfill the requirements of the Operating Systems Lab mini-project, the application leverages core OS concepts rather than abstractions. Specifically, instead of using commercial database systems (like MySQL) or web servers (like Apache), the system directly manages data using flat files, implements robust inter-process communication (IPC) for worker tasks, and maintains thread synchronization to serve multiple networked clients concurrently.
+
+The system allows Admin and Customer roles to connect via a TCP client application, enabling them to securely log in, browse the product inventory, manage stock, and process orders in real time.
+
+\section{Implementation of Mandatory OS Concepts}
+The project thoroughly implements the six required Operating Systems concepts, utilizing appropriate POSIX APIs to ensure safe, concurrent execution.
+
+\subsection{4.1 Role-Based Authorization}
+The system enforces strict Role-Based Access Control (RBAC). In the C codebase, user identities are associated with either \texttt{ROLE\_ADMIN} or \texttt{ROLE\_CUSTOMER}. 
+The application validates operations against the active \texttt{ClientSession}'s role. Administrative functions (e.g., \texttt{ADD\_PRODUCT}, \texttt{MODIFY\_PRODUCT}) execute the \texttt{require\_admin()} guard check, which gracefully rejects unauthorized network requests from consumer-level sessions.
+
+\subsection{4.2 File Locking}
+To safely manage persistent data without resorting to external database software, the application directly processes CSV-formatted plain text files (\texttt{users.csv}, \texttt{products.csv}, \texttt{sales.csv}). 
+Safe file I/O is guaranteed by implementing POSIX Advisory Record Locking utilizing the \texttt{fcntl()} system call. 
+Before any file is opened for reading (\texttt{F\_RDLCK}) or writing (\texttt{F\_WRLCK}), a \texttt{struct flock} lock represents the file's current state, ensuring overlapping processes cannot corrupt the data. Locks are cleanly released via \texttt{F\_UNLCK} once the file is synchronized and closed.
+
+\subsection{4.3 Concurrency Control}
+The server model depends on concurrent multitasking to serve continuous client requests. Multithreading is implemented using the POSIX Threads (\texttt{pthreads}) library. Each connected client spawns a dedicated worker thread via \texttt{pthread\_create}. 
+To prevent internal conflicts among concurrent threads, \texttt{pthread\_mutex\_t} structures dynamically coordinate critical sections. For example, \texttt{g\_db\_mutex} restricts database load actions and state updates to atomic operations.
+
+\subsection{4.4 Data Consistency}
+Managing a retail inventory presents significant race condition vulnerabilities—if two clients attempt to purchase the last remaining item simultaneously, only one transaction should successfully deduce the product quantity. 
+Consistency is preserved by ensuring all inventory validation, stock reduction, and order generation occurs strictly locked. The integration of \texttt{fcntl()} and thread \texttt{pthread\_mutex} assures that neither lost updates nor dirty reads occur on \texttt{data/products.csv}.
+
+\subsection{4.5 Socket Programming}
+The application applies a comprehensive Client-Server architecture utilizing standard TCP Sockets (\texttt{<sys/socket.h>}, \texttt{<netinet/in.h>}).
+The central runtime resides natively on \texttt{retail\_server}, which listens defensively via port binding. The client runtime \texttt{retail\_client} issues stream payloads toward the server logic over networked \texttt{send()} and \texttt{recv()} invocations, allowing clients on geographically separated terminals to act on the retail hub simultaneously. 
+
+\subsection{4.6 Inter-Process Communication (IPC)}
+To distribute heavy or asynchronous tasks effectively—such as simulating backend credit card payment verifications—the server forks independent child processes using \texttt{fork()}. 
+The parent thread and child process participate in real-time Inter-Process Communication via un-named memory \texttt{pipe()} connections. The child simulates varying delays, assesses payment logic independently, and communicates payload status (\texttt{APPROVED} or \texttt{DECLINED}) safely back up the pipe, allowing the primary thread execution to resume gracefully.
+
+\section{Challenges Faced and Solutions}
+\begin{enumerate}
+    \item \textbf{POSIX Strict Adherence for Concurrent I/O}: Implementing \texttt{fcntl()} advisory locks effectively required careful structuring of \texttt{open()} modes alongside \texttt{fopen()} buffers. \textit{Solution:} Created robust wrapper abstractions (\texttt{acquire\_file\_lock} and \texttt{release\_file\_lock}) to abstract lock handling before invoking library-level I/O streams.
+    \item \textbf{Zombie Processes on Forked Workers:} Payment worker simulations risked leaving zombie process handles if clients aggressively disconnected. \textit{Solution:} Adopted correct blocking \texttt{waitpid} mechanics within scoped boundaries to cleanly reap spawned processing children.
+\end{enumerate}
+
+\section{Sample System Output / Features}
+
+\begin{itemize}
+    \item Multi-client handling over TCP sockets.
+    \item Action auditing, where administrative operations populate \texttt{admin\_logs.log}.
+    \item Graceful shutdown: catching \texttt{SIGINT} / \texttt{SIGTERM} signals for proper socket cleanup and file synchronization avoiding data corruption.
+\end{itemize}
+
+\vspace{2em}
+\textit{(Note: Attach demonstration screenshots or output excerpts from terminal interfaces representing Admin actions vs. Customer browsing flows directly here or in the accompanying presentation).}
+
+\end{document}

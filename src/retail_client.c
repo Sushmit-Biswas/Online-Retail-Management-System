@@ -113,8 +113,7 @@ int recv_line(int fd, char *buffer, size_t size) {
 void read_line_prompt(const char *prompt, char *buffer, size_t size) {
     printf("%s", prompt);
     if (fgets(buffer, (int)size, stdin) == NULL) {
-        buffer[0] = '\0';
-        return;
+        exit(0);
     }
     trim_newline_local(buffer);
 }
