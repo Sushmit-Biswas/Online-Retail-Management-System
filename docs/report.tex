@@ -1,0 +1,176 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{eso-pic}
+\usepackage{setspace} % Added for line spacing
+\usepackage{parskip}  % Added for better paragraph spacing
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage[hyphens]{url}
+
+% Allow more flexibility in line breaks to prevent border crossing
+\emergencystretch 3em
+\sloppy
+
+% Set 1.5 line spacing to make it less clustered
+\onehalfspacing
+
+% --- Nice Border for All Pages ---
+\AddToShipoutPictureBG{%
+    \begin{tikzpicture}[remember picture,overlay]
+        % Outer thick border
+        \draw[line width=1.5pt, rounded corners=10pt]
+            ([shift={(1.2cm,-1.2cm)}]current page.north west)
+            rectangle
+            ([shift={(-1.2cm,1.2cm)}]current page.south east);
+        % Inner thin border
+        \draw[line width=0.5pt, rounded corners=8pt]
+            ([shift={(1.35cm,-1.35cm)}]current page.north west)
+            rectangle
+            ([shift={(-1.35cm,1.35cm)}]current page.south east);
+    \end{tikzpicture}%
+}
+
+\begin{document}
+
+% ==========================================
+% PAGE 1: COVER PAGE
+% ==========================================
+\vspace*{3cm}
+\begin{center}
+    {\Huge \textbf{Operating Systems Lab}} \\[1cm]
+    {\LARGE \textbf{Mini-Project Report}} \\[2.5cm]
+    
+    {\Large \textbf{Online Retail Store Management System}} \\[0.5cm]
+    {\large (Implemented in C using Linux Systems Programming)} \\[2.5cm]
+    
+    \renewcommand{\arraystretch}{1.5}
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Roll Number} & \textbf{Name} \\ \hline
+        BT2024038 & Sushmit Biswas \\ \hline
+    \end{tabular} \\[0.5cm]
+    
+    {\large Course: EGC 301P}
+\end{center}
+
+\newpage
+
+% ==========================================
+% PAGE 2: START OF REPORT
+% ==========================================
+\section{Problem Statement}
+The objective of this project is to develop a working \textbf{Online Retail Store Management System} using Linux systems programming. To meet the OS Lab requirements, the app uses direct system calls and core concepts instead of high-level frameworks. Instead of using a database like MySQL, the system stores data in flat files, uses POSIX threads for concurrency, and implements IPC for background tasks.
+
+The system allows Admins and Customers to log in via a TCP client, browse products, manage stock, and place orders.
+
+\vspace{0.5cm}
+\section{Implementation of Mandatory OS Concepts}
+The project thoroughly implements the six required Operating Systems concepts, utilizing appropriate POSIX APIs to ensure safe, concurrent execution.
+
+\subsection{Role-Based Authorization}
+The system uses Role-Based Access Control (RBAC). Users are assigned either \texttt{ROLE\_ADMIN} or \texttt{ROLE\_CUSTOMER}. 
+The server checks the role of the user before running any commands. Admin features like \texttt{ADD\_PRODUCT} or \texttt{MODIFY\_PRODUCT} are protected by a \texttt{require\_admin()} function, which blocks regular customers from making those changes.
+
+\subsection{File Locking}
+Instead of using a database, the application stores data in simple CSV files (\texttt{users.csv}, \texttt{products.csv}, \texttt{sales.csv}). 
+To keep file reading and writing safe, the project uses POSIX file locking with the \texttt{fcntl()} function. 
+Before a file is opened, a \texttt{struct flock} lock is applied (using \texttt{F\_RDLCK} or \texttt{F\_WRLCK}) to stop other processes from overwriting it. The lock is removed with \texttt{F\_UNLCK} when the file is closed.
+
+\subsection{Concurrency Control}
+The server uses multithreading to handle multiple clients at once using the POSIX Threads (\texttt{pthreads}) library. Every time a new client connects, a new thread is created using \texttt{pthread\_create}. 
+To stop threads from messing up shared memory, \texttt{pthread\_mutex\_t} locks are used. For example, \texttt{g\_db\_mutex} makes sure that only one thread can modify the product array or user list at a time.
+
+\subsection{Data Consistency}
+Managing a retail inventory can lead to race conditions. For example, if two clients try to buy the last item at the exact same time, only one should succeed. 
+Data consistency is maintained by keeping all stock checks and order generation inside a locked section. By combining \texttt{fcntl()} and \texttt{pthread\_mutex}, we make sure that dirty reads and lost updates don't happen to \texttt{data/products.csv}.
+
+\subsection{Socket Programming}
+The application uses a standard Client-Server architecture built with TCP Sockets (\texttt{<sys/socket.h>}, \texttt{<netinet/in.h>}).
+The \texttt{retail\_server} program binds to a port and listens for incoming connections. The \texttt{retail\_client} program connects to it and sends requests using \texttt{send()} and \texttt{recv()}. This allows multiple clients from different terminal windows to connect and interact with the store at the same time. 
+
+\subsection{Inter-Process Communication (IPC)}
+To handle separate tasks without blocking the main program, like simulating a payment gateway, the server creates child processes using \texttt{fork()}. 
+The parent thread and the child process communicate using \texttt{pipe()}. The child process handles the payment logic, adds a simulated delay, and then sends the status (\texttt{APPROVED} or \texttt{DECLINED}) back through the pipe so the parent thread can finish the order.
+
+\subsection{Automated Concurrency Verification}
+To test if the concurrency control works, I wrote an automated script using \texttt{tmux} and \texttt{auto\_client.py}. The script starts one server and three clients at once. The clients automatically log in and place orders at the exact same time, which shows that the system handles multiple requests and updates stock correctly.
+
+\newpage
+% ==========================================
+% PAGE 3: CHALLENGES & OUTPUT
+% ==========================================
+\section{Challenges Faced and Solutions}
+\begin{enumerate}
+    \setlength{\itemsep}{0.5em}
+    \item \textbf{Handling File Locks properly}: Using \texttt{fcntl()} for file locking was tricky when combining it with standard \texttt{fopen()} functions. \textit{Solution:} I created simple wrapper functions (\texttt{acquire\_file\_lock} and \texttt{release\_file\_lock}) to handle the locking safely before reading or writing to the files.
+    \item \textbf{Zombie Processes}: The \texttt{fork()} calls for the payment process were leaving behind zombie processes when clients disconnected. \textit{Solution:} I used \texttt{waitpid} to make sure the parent thread properly cleans up the child processes after they finish.
+\end{enumerate}
+
+\vspace{0.5cm}
+\section{Sample System Output and Features}
+
+The finalized system successfully integrates standard operational features alongside robust automated testing to prove network concurrency and thread safety. Below are the execution screenshots demonstrating the core functionalities of the application.
+
+\subsection*{4.1 System Compilation and Setup}
+The project utilizes a \texttt{Makefile} for clean compilation. The server initializes and binds to the specified port, ready to accept client connections.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{setup.png}
+    \caption{Clean compilation using \texttt{make} and initialization of the Retail Server and Client.}
+\end{figure}
+
+\subsection*{4.2 Administrative Functionality}
+The Admin role has exclusive access to inventory management, system logs, and global order tracking. The terminal UI utilizes the \texttt{libfort} library to render clean, formatted tables.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]{admin1.png}
+    \caption{Admin view displaying the paginated product inventory.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{admin2.png}
+    \caption{Admin interface showing real-time system action logs and global user orders.}
+\end{figure}
+
+\subsection*{4.3 Customer Operations}
+Customers can securely log in, browse available stock, execute purchases via different payment methods, and view their individual transaction history.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]{client.png}
+    \caption{Customer placing an order with UPI and verifying the transaction in their order history.}
+\end{figure}
+
+\subsection*{4.4 Concurrency and Thread Safety}
+To demonstrate race-condition prevention and POSIX thread safety under load, an automated testing suite was integrated into the workflow:
+\begin{itemize}
+    \item \texttt{auto\_client.py}: A Python automation script that interfaces directly with the compiled C client binary. It programmatically simulates a rapid, end-to-end user workflow (account registration, login, stock purchasing, and fetching order history).
+    \item \texttt{demo\_concurrency\_}\allowbreak\texttt{tmux.sh}: A bash orchestrator that utilizes a \texttt{tmux} environment to spin up the central server in one pane and simultaneously trigger multiple Python automated clients in split panes.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{concurrency1.png}
+    \caption{Tmux environment orchestrating three automated clients firing simultaneous requests to the central server.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{concurrency2.png}
+    \caption{Concurrency in action: The thread-safe architecture correctly processes simultaneous purchases. Client 1's transaction is safely rejected due to "Insufficient stock" after Clients 2 and 3 consumed the remaining inventory, proving data consistency and active file locking.}
+\end{figure}
+
+\end{document}

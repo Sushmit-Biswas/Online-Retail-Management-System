@@ -10,7 +10,7 @@ It runs in client-server mode:
 
 - Linux runtime (tested with WSL)
 - C programming language (GCC)
-- File-based storage using plain text files
+- File-based storage using plain text files (CSV)
 
 Note: This implementation intentionally does not use MySQL, Apache, or a web server.
 
@@ -60,11 +60,8 @@ Note: This implementation intentionally does not use MySQL, Apache, or a web ser
 3. Run networked client:
    ./retail_client
 
-4. Full visible demo script:
-   ./demo_watch_full.sh
-
-5. Socket QA script:
-   ./qa_socket.sh
+4. Automated Concurrency Demo (Visual):
+   ./demo_concurrency_tmux.sh
 
 ## Default Credentials
 
@@ -75,16 +72,12 @@ This default admin is auto-created only when no active admin exists in data/user
 
 ## Data Files
 
-- data/users.txt: User records
-- data/products.txt: Product inventory records
-- data/sales.txt: Order and payment records
-- data/admin_logs.txt: Audit logs
+- data/users.csv: User records
+- data/products.csv: Product inventory records
+- data/sales.csv: Order and payment records
+- data/admin_logs.log: Audit logs
 
 ## Deliverables Included
 
 - Functional client-server retail management system
-- Design documentation
-- Installation guide
-- User manual
-
-Presentation slides and demo video are not generated automatically by code and should be prepared separately by the project team.
+- Design documentation and User Manual

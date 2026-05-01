@@ -1,4 +1,6 @@
-# User Manual
+# User Manual (OS Lab Project: Retail System)
+
+This manual describes the operation of the Online Retail Store Management System. This is an **Operating Systems Lab** project built using pure C and Linux systems programming (Sockets, Pthreads, IPC Pipes, and POSIX File Locking). It does not use external database engines.
 
 ## 0. Start the System
 
@@ -77,13 +79,34 @@ Common order statuses:
 
 ## 6. Files Generated
 
-During use, the program seamlessly logs data into formatted CSV files:
+During use, the program logs data into formatted CSV files:
 
 - data/users.csv
 - data/products.csv
 - data/sales.csv
 - data/admin_logs.log
 
-## 7. User Interface
+## 7. Troubleshooting & OS Notes
 
-The retail client utilizes a modernized, dynamic, command-line grid interface built with **libfort**, generating beautiful ASCII tables using ANSI escape cyan/magenta colors. No raw text output!
+- **Port already in use**: If the server fails to start with "Address already in use", wait 30 seconds for the kernel to clear the socket or kill the previous process using `fuser -k 9090/tcp`.
+- **Zombie Processes**: If you see `<defunct>` processes in `top`, ensure the server is properly cleaning up the payment worker child processes (implemented via `waitpid`).
+- **File Locks**: If the program hangs, it might be waiting for a file lock (`fcntl`). Ensure no other process is holding a write lock on the `.csv` files.
+- **IPC Failures**: Payment simulation requires successful `pipe()` creation. If simulation fails, check system resource limits.
+
+## 8. Visual Concurrency Demo
+
+To demonstrate the system's ability to handle multiple simultaneous transactions correctly (satisfying the OS Lab requirements), you can run the automated tmux-based demo:
+
+1. Ensure `tmux` and `python3` are installed in your WSL/Linux environment.
+2. Run the demo script:
+   ```bash
+   ./demo_concurrency_tmux.sh
+   ```
+
+This will automatically:
+- Split your terminal into 4 panes (1 Server, 3 Clients).
+- Register 3 demo users simultaneously.
+- Attempt to place orders for the same product at the exact same time.
+- Verify that order IDs are unique and stock is correctly decremented.
+
+*Note: Press `Ctrl+B` then `D` to exit the tmux demo view.*
