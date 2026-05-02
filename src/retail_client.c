@@ -181,6 +181,8 @@ void normalize_token(char *text) {
     }
 }
 
+// Connects to the server over the network using TCP Sockets. 
+// This allows the client terminal to be physically separated from the main database/server.
 static int connect_server(const char *ip, int port) {
     int fd;
     struct sockaddr_in addr;

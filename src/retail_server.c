@@ -71,6 +71,8 @@ static int g_user_count = 0;
 static int g_product_count = 0;
 static int g_order_count = 0;
 
+// We use POSIX Mutexes here to stop threads from stepping on each other.
+// This prevents race conditions when multiple clients try to buy the same item!
 static pthread_mutex_t g_db_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -195,6 +197,8 @@ static int parse_order_line(const char *line, Order *order) {
 }
 
 
+// This handles our File Locking using fcntl(). We use this instead of a database engine 
+// to make sure no two threads write to the CSV files at the exact same time and corrupt the data.
 static int acquire_file_lock(const char *filename, int is_write, int *out_fd) {
     struct flock fl;
     int fd;
@@ -207,6 +211,8 @@ static int acquire_file_lock(const char *filename, int is_write, int *out_fd) {
     fl.l_start = 0;
     fl.l_len = 0;
     
+    // set the lock
+    // if lock cannot be acquired, wait for it
     fcntl(fd, F_SETLKW, &fl);
     *out_fd = fd;
     return 0;
@@ -950,6 +956,8 @@ static void handle_place_order(ClientSession *session, const char *product_id_te
         return;
     }
 
+    // Critical Section: We lock the mutex before checking and decreasing stock.
+    // This ensures data consistency so two clients don't buy the very last item simultaneously.
     pthread_mutex_lock(&g_db_mutex);
 
     product_idx = find_product_index_locked(product_id);
@@ -1583,6 +1591,8 @@ int main(void) {
         return 1;
     }
 
+    // Setting up the TCP Socket. This implements the Client-Server architecture, 
+    // allowing different terminals to connect and talk to our central store.
     g_listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (g_listen_fd < 0) {
         perror("socket");
@@ -1635,6 +1645,8 @@ int main(void) {
             continue;
         }
 
+        // Multithreading using pthreads: We spin up a new thread for every client connection.
+        // This stops the server from hanging and allows handling multiple users concurrently.
         if (pthread_create(&thread_id, NULL, client_worker, client_fd) != 0) {
             close(*client_fd);
             free(client_fd);

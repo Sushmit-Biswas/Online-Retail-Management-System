@@ -9,10 +9,14 @@ int run_payment_process(const char *method, float amount, char *payment_status, 
     int response_pipe[2];
     pid_t pid;
 
+    // Using pipe() for Inter-Process Communication (IPC).
+    // We create a request and response pipe to talk between the parent server thread and the child payment process.
     if (pipe(request_pipe) < 0 || pipe(response_pipe) < 0) {
         return 0;
     }
 
+    // fork() creates a separate child process. This offloads the payment gateway simulation
+    // so our main server thread doesn't get blocked or crash if the payment fails.
     pid = fork();
     if (pid < 0) {
         close(request_pipe[0]);
@@ -65,6 +69,8 @@ int run_payment_process(const char *method, float amount, char *payment_status, 
         read_bytes = read(response_pipe[0], payment_status, payment_status_size - 1);
         close(response_pipe[0]);
 
+        // We use waitpid() to catch the child's exit status and clean up its resources.
+        // This is crucial to prevent the child from becoming a Zombie Process.
         if (read_bytes <= 0) {
             waitpid(pid, &status_code, 0);
             return 0;

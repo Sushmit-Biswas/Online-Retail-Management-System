@@ -7,6 +7,8 @@
 
 #define SERVER_IO_MAX_LINE 2048
 
+// send_all() sends the given buffer to the given file descriptor.
+// It keeps sending the data until all of the data is sent.
 static int send_all(int fd, const char *buffer, size_t length) {
     size_t sent = 0;
 
@@ -27,6 +29,8 @@ static int send_all(int fd, const char *buffer, size_t length) {
     return 1;
 }
 
+// send_linef() sends the given formatted string to the given file descriptor.
+// It appends a newline character to the string if it does not already have one.
 int send_linef(int fd, const char *fmt, ...) {
     char buffer[SERVER_IO_MAX_LINE];
     size_t len;
