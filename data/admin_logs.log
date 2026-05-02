@@ -1,16 +1,8 @@
-[2026-04-30 23:33:14] User: demo2 , Action: Registered new customer account
-[2026-04-30 23:33:14] User: demo3 , Action: Registered new customer account
-[2026-04-30 23:33:14] User: demo1 , Action: Registered new customer account
-[2026-04-30 23:33:17] User: demo2 , Action: Customer logged in
-[2026-04-30 23:33:17] User: demo3 , Action: Customer logged in
-[2026-04-30 23:33:17] User: demo1 , Action: Customer logged in
-[2026-04-30 23:33:25] User: demo2 , Action: Placed order id=6 product=1 qty=1
-[2026-04-30 23:33:25] User: demo3 , Action: Placed order id=7 product=1 qty=1
-[2026-04-30 23:33:25] User: demo1 , Action: Logged out
-[2026-04-30 23:33:26] User: demo2 , Action: Logged out
-[2026-04-30 23:33:26] User: demo3 , Action: Logged out
-[2026-04-30 23:41:57] User: admin , Action: Admin logged in
-[2026-04-30 23:45:07] User: admin , Action: Logged out
-[2026-04-30 23:45:50] User: qwerty , Action: Registered new customer account
-[2026-04-30 23:46:03] User: qwerty , Action: Customer logged in
-[2026-04-30 23:46:34] User: qwerty , Action: Placed order id=8 product=2 qty=2
+[2026-05-02 21:08:39] User: demo1 , Action: Customer logged in
+[2026-05-02 21:08:39] User: demo3 , Action: Customer logged in
+[2026-05-02 21:08:39] User: demo2 , Action: Customer logged in
+[2026-05-02 21:08:43] User: demo1 , Action: Placed order id=6 product=1 qty=1
+[2026-05-02 21:08:43] User: demo3 , Action: Placed order id=7 product=1 qty=1
+[2026-05-02 21:08:45] User: demo1 , Action: Logged out
+[2026-05-02 21:08:45] User: demo3 , Action: Logged out
+[2026-05-02 21:08:45] User: demo2 , Action: Logged out
